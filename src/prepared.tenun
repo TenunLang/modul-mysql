@@ -143,6 +143,45 @@ fungsi mysql_bin_lebar(d: teks, p: bulat, tipe: bulat): bulat {
     kembali mysql_le_lebar(d, p) + mysql_le_nilai(d, p);
 }
 
+// Pad angka jadi 2 digit ("7" -> "07").
+fungsi mysql_pad2(n: bulat): teks {
+    kalau n < 10 {
+        kembali "0" + keTeks(n);
+    }
+    kembali keTeks(n);
+}
+
+// Decode DATE/DATETIME/TIMESTAMP biner: panjang(1) + tahun(2 LE),bulan,hari[,jam,menit,detik].
+fungsi mysql_bin_tanggal(d: teks, p: bulat, adaWaktu: bool): teks {
+    biar L: bulat = mysql_le_nilai(d, p);
+    biar c: bulat = p + mysql_le_lebar(d, p);
+    kalau L == 0 {
+        kalau adaWaktu { kembali "0000-00-00 00:00:00"; }
+        kembali "0000-00-00";
+    }
+    biar th: bulat = bacaInt(d, c, 2, salah);
+    biar tgl: teks = keTeks(th) + "-" + mysql_pad2(bacaInt(d, c + 2, 1, salah)) + "-" + mysql_pad2(bacaInt(d, c + 3, 1, salah));
+    kalau adaWaktu && L >= 7 {
+        kembali tgl + " " + mysql_pad2(bacaInt(d, c + 4, 1, salah)) + ":" + mysql_pad2(bacaInt(d, c + 5, 1, salah)) + ":" + mysql_pad2(bacaInt(d, c + 6, 1, salah));
+    }
+    kalau adaWaktu {
+        kembali tgl + " 00:00:00";
+    }
+    kembali tgl;
+}
+
+// Decode TIME biner: panjang(1) + negatif(1),hari(4 LE),jam,menit,detik.
+fungsi mysql_bin_waktu(d: teks, p: bulat): teks {
+    biar L: bulat = mysql_le_nilai(d, p);
+    biar c: bulat = p + mysql_le_lebar(d, p);
+    kalau L == 0 {
+        kembali "00:00:00";
+    }
+    biar hari: bulat = bacaInt(d, c + 1, 4, salah);
+    biar jam: bulat = bacaInt(d, c + 5, 1, salah) + hari * 24;
+    kembali mysql_pad2(jam) + ":" + mysql_pad2(bacaInt(d, c + 6, 1, salah)) + ":" + mysql_pad2(bacaInt(d, c + 7, 1, salah));
+}
+
 fungsi mysql_bin_baca(d: teks, p: bulat, tipe: bulat): teks {
     kalau tipe == 1 { kembali keTeks(bacaInt(d, p, 1, salah)); }
     kalau tipe == 2 { kembali keTeks(bacaInt(d, p, 2, salah)); }
@@ -150,6 +189,11 @@ fungsi mysql_bin_baca(d: teks, p: bulat, tipe: bulat): teks {
     kalau tipe == 8 { kembali keTeks(bacaInt(d, p, 8, salah)); }
     kalau tipe == 4 { kembali bacaFloat(d, p, 4); }   // FLOAT
     kalau tipe == 5 { kembali bacaFloat(d, p, 8); }   // DOUBLE
+    kalau tipe == 7 { kembali mysql_bin_tanggal(d, p, benar); }    // TIMESTAMP
+    kalau tipe == 12 { kembali mysql_bin_tanggal(d, p, benar); }   // DATETIME
+    kalau tipe == 10 { kembali mysql_bin_tanggal(d, p, salah); }   // DATE
+    kalau tipe == 14 { kembali mysql_bin_tanggal(d, p, salah); }   // NEWDATE
+    kalau tipe == 11 { kembali mysql_bin_waktu(d, p); }            // TIME
     biar w: bulat = mysql_le_lebar(d, p);
     biar len: bulat = mysql_le_nilai(d, p);
     kembali potong(d, p + w, len);
