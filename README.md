@@ -34,6 +34,21 @@ kalau db < 0 {
 
 Tutup koneksi dengan builtin inti `tutup(soket)`.
 
+## Struktur
+
+```
+modul-mysql/
+  tenun.json         manifest (nama, versi, deskripsi, berkas, butuh)
+  src/
+    mysql.tenun      sumber modul
+  contoh/
+    contoh.tenun     contoh pemakaian
+  .github/workflows/ci.yml
+  README.md
+```
+
+Entry modul ditunjuk oleh `berkas` di `tenun.json` (`src/mysql.tenun`).
+
 ## Catatan
 
 - Saat ini `mysqlPerintah` mengembalikan paket respons mentah; parser hasil (baris/kolom) menyusul.
@@ -41,4 +56,4 @@ Tutup koneksi dengan builtin inti `tutup(soket)`.
 
 ## Lisensi
 
-Belum ditentukan.
+MIT.

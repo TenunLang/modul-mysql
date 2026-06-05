@@ -4,7 +4,7 @@
   "deskripsi": "Klien MySQL/MariaDB untuk Tenun: autentikasi mysql_native_password dan eksekusi query.",
   "lisensi": "MIT",
   "penulis": "TenunLang",
-  "berkas": "mysql.tenun",
+  "berkas": "src/mysql.tenun",
   "kataKunci": ["mysql", "mariadb", "basisdata", "klien", "sql"],
   "butuh": {}
 }
