@@ -148,8 +148,8 @@ fungsi mysql_bin_baca(d: teks, p: bulat, tipe: bulat): teks {
     kalau tipe == 2 { kembali keTeks(bacaInt(d, p, 2, salah)); }
     kalau tipe == 3 { kembali keTeks(bacaInt(d, p, 4, salah)); }
     kalau tipe == 8 { kembali keTeks(bacaInt(d, p, 8, salah)); }
-    kalau tipe == 4 { kembali ""; }
-    kalau tipe == 5 { kembali ""; }
+    kalau tipe == 4 { kembali bacaFloat(d, p, 4); }   // FLOAT
+    kalau tipe == 5 { kembali bacaFloat(d, p, 8); }   // DOUBLE
     biar w: bulat = mysql_le_lebar(d, p);
     biar len: bulat = mysql_le_nilai(d, p);
     kembali potong(d, p + w, len);
