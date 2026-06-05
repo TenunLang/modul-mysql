@@ -52,13 +52,33 @@ Membaca hasil SELECT:
 
 Nama fungsi memakai gaya `snake_case` dengan awalan `mysql_`.
 
+## Prepared statement (berparameter, anti-injeksi)
+
+Placeholder `?`; nilai dikirim terpisah lewat protokol biner (COM_STMT_PREPARE/EXECUTE).
+
+```tenun
+biar h: teks = mysql_siapkan_jalan(db, "SELECT id, nama FROM pengguna WHERE umur >= ?", ["18"]);
+biar i: bulat = 0;
+selama i < mysql_bin_baris(h) {
+    cetak(mysql_bin_ambil(h, i, 1));
+    i = i + 1;
+}
+```
+
+- `mysql_siapkan_jalan(soket, sql, params: []teks): teks` — prepare + execute, kembalikan hasil biner.
+- `mysql_bin_kolom(hasil): bulat`, `mysql_bin_baris(hasil): bulat`, `mysql_bin_ambil(hasil, baris, kolom): teks`.
+
+Tipe didukung: integer (TINY/SHORT/LONG/LONGLONG) dan teks/varchar/blob/decimal. FLOAT/DOUBLE belum.
+
 ## Struktur
 
 ```
 modul-mysql/
   tenun.json         manifest (nama, versi, deskripsi, berkas, butuh)
   src/
-    mysql.tenun      sumber modul
+    mysql.tenun      koneksi, auth, query teks
+    lenenc.tenun     helper integer length-encoded
+    prepared.tenun   prepared statement (protokol biner)
   contoh/
     contoh.tenun     contoh pemakaian
   .github/workflows/ci.yml

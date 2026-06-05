@@ -3,6 +3,7 @@
 // sambung/kirim/terima, keByte/bacaInt, sha1Raw/xor, potong.
 
 impor "./lenenc.tenun";
+impor "./prepared.tenun";
 
 // Baca satu paket utuh (header 4 byte + payload), persis sesuai panjangnya.
 fungsi mysql_baca_paket(s: bulat): teks {

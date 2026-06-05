@@ -1,0 +1,184 @@
+// Prepared statement MySQL (protokol biner) — query berparameter, aman injeksi.
+// Placeholder pada sql: '?'. Nilai dikirim terpisah (bukan digabung ke SQL).
+
+// Bit ke-idx dari sebuah byte.
+fungsi mysql_pow2(n: bulat): bulat {
+    biar r: bulat = 1;
+    biar i: bulat = 0;
+    selama i < n { r = r * 2; i = i + 1; }
+    kembali r;
+}
+fungsi mysql_bit(v: bulat, idx: bulat): bulat {
+    kembali (v / mysql_pow2(idx)) % 2;
+}
+
+// PREPARE + EXECUTE + rakit respons biner. params semua dikirim sebagai string.
+fungsi mysql_siapkan_jalan(s: bulat, sql: teks, params: []teks): teks {
+    // COM_STMT_PREPARE (0x16)
+    biar pl: teks = keByte(22, 1, salah) + sql;
+    kirim(s, keByte(panjangTeks(pl), 3, salah) + keByte(0, 1, salah) + pl);
+    biar prep: teks = mysql_baca_paket(s);
+    kalau bacaInt(prep, 4, 1, salah) == 255 { kembali prep; }
+
+    biar stmt_id: bulat = bacaInt(prep, 5, 4, salah);
+    biar num_cols: bulat = bacaInt(prep, 9, 2, salah);
+    biar num_params: bulat = bacaInt(prep, 11, 2, salah);
+
+    // konsumsi definisi parameter + EOF
+    kalau num_params > 0 {
+        biar i: bulat = 0;
+        selama i < num_params { mysql_baca_paket(s); i = i + 1; }
+        mysql_baca_paket(s);
+    }
+    // konsumsi definisi kolom (dari prepare) + EOF
+    kalau num_cols > 0 {
+        biar j: bulat = 0;
+        selama j < num_cols { mysql_baca_paket(s); j = j + 1; }
+        mysql_baca_paket(s);
+    }
+
+    // COM_STMT_EXECUTE (0x17)
+    biar body: teks = keByte(23, 1, salah) + keByte(stmt_id, 4, salah) + keByte(0, 1, salah) + keByte(1, 4, salah);
+    biar np: bulat = panjang(params);
+    biar nb: bulat = (np + 7) / 8;          // null bitmap (semua 0)
+    biar k: bulat = 0;
+    selama k < nb { body = body + keByte(0, 1, salah); k = k + 1; }
+    body = body + keByte(1, 1, salah);      // new_params_bound = 1
+    biar p: bulat = 0;
+    selama p < np {
+        body = body + keByte(253, 1, salah) + keByte(0, 1, salah);   // MYSQL_TYPE_VAR_STRING
+        p = p + 1;
+    }
+    biar q: bulat = 0;
+    selama q < np {
+        body = body + keByte(panjangTeks(params[q]), 1, salah) + params[q];   // lenenc (asumsi < 251)
+        q = q + 1;
+    }
+    kirim(s, keByte(panjangTeks(body), 3, salah) + keByte(0, 1, salah) + body);
+
+    // respons EXECUTE
+    biar p1: teks = mysql_baca_paket(s);
+    biar tanda: bulat = bacaInt(p1, 4, 1, salah);
+    kalau tanda == 0 { kembali p1; }
+    kalau tanda == 255 { kembali p1; }
+
+    biar hasil: teks = p1;
+    biar nc: bulat = mysql_le_nilai(p1, 4);
+    biar c: bulat = 0;
+    selama c < nc { hasil = hasil + mysql_baca_paket(s); c = c + 1; }
+    hasil = hasil + mysql_baca_paket(s);    // EOF kolom
+    selama benar {
+        biar baris: teks = mysql_baca_paket(s);
+        hasil = hasil + baris;
+        kalau bacaInt(baris, 4, 1, salah) == 254 {
+            kalau panjangTeks(baris) < 13 { kembali hasil; }
+        }
+    }
+    kembali hasil;
+}
+
+// ---- Parsing hasil biner ----
+
+fungsi mysql_bin_kolom(hasil: teks): bulat {
+    kembali mysql_le_nilai(hasil, 4);
+}
+
+// Offset paket definisi kolom ke-i.
+fungsi mysql_bin_coldef_off(hasil: teks, i: bulat): bulat {
+    biar off: bulat = 4 + bacaInt(hasil, 0, 3, salah);
+    biar k: bulat = 0;
+    selama k < i {
+        off = off + 4 + bacaInt(hasil, off, 3, salah);
+        k = k + 1;
+    }
+    kembali off;
+}
+
+// Tipe kolom ke-i (byte tipe MySQL).
+fungsi mysql_bin_tipe(hasil: teks, i: bulat): bulat {
+    biar off: bulat = mysql_bin_coldef_off(hasil, i) + 4;
+    biar j: bulat = 0;
+    selama j < 6 {                          // catalog,schema,table,org_table,name,org_name
+        off = off + mysql_le_lebar(hasil, off) + mysql_le_nilai(hasil, off);
+        j = j + 1;
+    }
+    off = off + mysql_le_lebar(hasil, off); // penanda panjang fixed (0x0c)
+    off = off + 2 + 4;                       // charset + column_length
+    kembali bacaInt(hasil, off, 1, salah);
+}
+
+// Offset baris biner pertama.
+fungsi mysql_bin_awal(hasil: teks): bulat {
+    biar off: bulat = 4 + bacaInt(hasil, 0, 3, salah);
+    biar nc: bulat = mysql_bin_kolom(hasil);
+    biar k: bulat = 0;
+    selama k < nc { off = off + 4 + bacaInt(hasil, off, 3, salah); k = k + 1; }
+    off = off + 4 + bacaInt(hasil, off, 3, salah);   // EOF kolom
+    kembali off;
+}
+
+fungsi mysql_bin_baris(hasil: teks): bulat {
+    biar off: bulat = mysql_bin_awal(hasil);
+    biar n: bulat = 0;
+    selama benar {
+        kalau off + 5 > panjangTeks(hasil) { kembali n; }
+        biar rlen: bulat = bacaInt(hasil, off, 3, salah);
+        kalau bacaInt(hasil, off + 4, 1, salah) == 254 {
+            kalau rlen < 9 { kembali n; }
+        }
+        off = off + 4 + rlen;
+        n = n + 1;
+    }
+    kembali n;
+}
+
+// Lebar byte nilai biner berdasarkan tipe.
+fungsi mysql_bin_lebar(d: teks, p: bulat, tipe: bulat): bulat {
+    kalau tipe == 1 { kembali 1; }
+    kalau tipe == 2 { kembali 2; }
+    kalau tipe == 3 { kembali 4; }
+    kalau tipe == 8 { kembali 8; }
+    kalau tipe == 4 { kembali 4; }
+    kalau tipe == 5 { kembali 8; }
+    kembali mysql_le_lebar(d, p) + mysql_le_nilai(d, p);
+}
+
+fungsi mysql_bin_baca(d: teks, p: bulat, tipe: bulat): teks {
+    kalau tipe == 1 { kembali keTeks(bacaInt(d, p, 1, salah)); }
+    kalau tipe == 2 { kembali keTeks(bacaInt(d, p, 2, salah)); }
+    kalau tipe == 3 { kembali keTeks(bacaInt(d, p, 4, salah)); }
+    kalau tipe == 8 { kembali keTeks(bacaInt(d, p, 8, salah)); }
+    kalau tipe == 4 { kembali ""; }
+    kalau tipe == 5 { kembali ""; }
+    biar w: bulat = mysql_le_lebar(d, p);
+    biar len: bulat = mysql_le_nilai(d, p);
+    kembali potong(d, p + w, len);
+}
+
+// Nilai sel (baris, kolom) dari hasil biner. NULL -> "".
+fungsi mysql_bin_ambil(hasil: teks, baris: bulat, kolom: bulat): teks {
+    biar nc: bulat = mysql_bin_kolom(hasil);
+    biar off: bulat = mysql_bin_awal(hasil);
+    biar r: bulat = 0;
+    selama r < baris {
+        off = off + 4 + bacaInt(hasil, off, 3, salah);
+        r = r + 1;
+    }
+    biar bitmap: bulat = off + 4 + 1;       // lewati header paket (0x00)
+    biar nbBytes: bulat = (nc + 2 + 7) / 8;
+    biar p: bulat = bitmap + nbBytes;
+
+    biar c: bulat = 0;
+    selama c < kolom {
+        biar bit: bulat = c + 2;
+        biar nbyte: bulat = bacaInt(hasil, bitmap + (bit / 8), 1, salah);
+        kalau mysql_bit(nbyte, bit % 8) == 0 {
+            p = p + mysql_bin_lebar(hasil, p, mysql_bin_tipe(hasil, c));
+        }
+        c = c + 1;
+    }
+    biar bitT: bulat = kolom + 2;
+    biar nbyteT: bulat = bacaInt(hasil, bitmap + (bitT / 8), 1, salah);
+    kalau mysql_bit(nbyteT, bitT % 8) == 1 { kembali ""; }
+    kembali mysql_bin_baca(hasil, p, mysql_bin_tipe(hasil, kolom));
+}
