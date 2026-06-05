@@ -1,0 +1,10 @@
+{
+  "nama": "mysql",
+  "versi": "0.1.0",
+  "deskripsi": "Klien MySQL/MariaDB untuk Tenun: autentikasi mysql_native_password dan eksekusi query.",
+  "lisensi": "MIT",
+  "penulis": "TenunLang",
+  "berkas": "mysql.tenun",
+  "kataKunci": ["mysql", "mariadb", "basisdata", "klien", "sql"],
+  "butuh": {}
+}

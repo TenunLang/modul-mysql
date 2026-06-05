@@ -1,0 +1,71 @@
+// Modul MySQL/MariaDB untuk Tenun — protokol klasik + mysql_native_password.
+// Dibangun di atas builtin inti: sambung/kirim/terima, keByte/bacaInt, sha1Raw/xor, potong.
+
+// Sambung + autentikasi. Kembalikan handle soket, atau -1 bila gagal.
+fungsi mysqlSambung(inang: teks, port: bulat, pengguna: teks, sandi: teks): bulat {
+    biar s: bulat = sambung(inang, port);
+
+    biar hs: teks = terima(s, 1024);
+
+    // payload mulai offset 4 (header 3 byte panjang + 1 byte urutan)
+    // [4] = versi protokol, lalu versi server (null-terminated)
+    biar i: bulat = 5;
+    selama bacaInt(hs, i, 1, salah) != 0 {
+        i = i + 1;
+    }
+    i = i + 1;          // lewati null
+    i = i + 4;          // id thread
+    biar salt1: teks = potong(hs, i, 8);
+    i = i + 8;
+    i = i + 1;          // filler
+    i = i + 2;          // kapabilitas bawah
+    i = i + 1;          // charset
+    i = i + 2;          // status
+    i = i + 2;          // kapabilitas atas
+    i = i + 1;          // panjang auth-data
+    i = i + 10;         // reserved
+    biar salt2: teks = potong(hs, i, 12);
+    biar salt: teks = salt1 + salt2;
+
+    // scramble mysql_native_password:
+    // token = SHA1(sandi) XOR SHA1( salt + SHA1(SHA1(sandi)) )
+    // sandi kosong => respons auth kosong (panjang 0)
+    biar token: teks = "";
+    kalau panjangTeks(sandi) > 0 {
+        biar h1: teks = sha1Raw(sandi);
+        biar h2: teks = sha1Raw(h1);
+        token = xor(h1, sha1Raw(salt + h2));
+    }
+
+    // kapabilitas: LONG_PASSWORD(1) + PROTOCOL_41(512) + SECURE_CONNECTION(32768) + PLUGIN_AUTH(524288)
+    biar payload: teks = keByte(557569, 4, salah);
+    payload = payload + keByte(16777216, 4, salah);   // ukuran paket maks
+    payload = payload + keByte(33, 1, salah);          // charset utf8
+
+    biar nol: bulat = 0;
+    selama nol < 23 {
+        payload = payload + keByte(0, 1, salah);
+        nol = nol + 1;
+    }
+
+    payload = payload + pengguna + keByte(0, 1, salah);
+    payload = payload + keByte(panjangTeks(token), 1, salah) + token;
+    payload = payload + "mysql_native_password" + keByte(0, 1, salah);
+
+    biar pkt: teks = keByte(panjangTeks(payload), 3, salah) + keByte(1, 1, salah) + payload;
+    kirim(s, pkt);
+
+    biar resp: teks = terima(s, 512);
+    kalau bacaInt(resp, 4, 1, salah) == 255 {
+        kembali -1;
+    }
+    kembali s;
+}
+
+// Kirim perintah SQL (COM_QUERY). Kembalikan respons mentah server.
+fungsi mysqlPerintah(s: bulat, sql: teks): teks {
+    biar payload: teks = keByte(3, 1, salah) + sql;            // 0x03 = COM_QUERY
+    biar pkt: teks = keByte(panjangTeks(payload), 3, salah) + keByte(0, 1, salah) + payload;
+    kirim(s, pkt);
+    kembali terima(s, 65536);
+}
