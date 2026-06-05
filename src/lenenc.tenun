@@ -1,0 +1,19 @@
+// Integer length-encoded MySQL: lebar byte + nilainya.
+
+fungsi mysql_le_lebar(d: teks, o: bulat): bulat {
+    biar b: bulat = bacaInt(d, o, 1, salah);
+    kalau b == 251 { kembali 1; }    // NULL
+    kalau b < 251 { kembali 1; }
+    kalau b == 252 { kembali 3; }
+    kalau b == 253 { kembali 4; }
+    kembali 9;
+}
+
+fungsi mysql_le_nilai(d: teks, o: bulat): bulat {
+    biar b: bulat = bacaInt(d, o, 1, salah);
+    kalau b == 251 { kembali 0; }    // NULL
+    kalau b < 251 { kembali b; }
+    kalau b == 252 { kembali bacaInt(d, o + 1, 2, salah); }
+    kalau b == 253 { kembali bacaInt(d, o + 1, 3, salah); }
+    kembali bacaInt(d, o + 1, 8, salah);
+}
