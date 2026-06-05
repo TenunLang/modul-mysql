@@ -127,6 +127,8 @@ fungsi mysql_escape(nilai: teks): teks {
     r = ganti(r, "\"", "\\\"");
     r = ganti(r, "\n", "\\n");
     r = ganti(r, "\r", "\\r");
+    r = ganti(r, keByte(0, 1, salah), "\\0");     // null byte
+    r = ganti(r, keByte(26, 1, salah), "\\Z");    // ctrl-Z
     kembali r;
 }
 
