@@ -1,11 +1,19 @@
 impor "mysql";
 
-biar db: bulat = mysqlSambung("127.0.0.1", 3306, "root", "");
+biar db: bulat = mysql_sambung("127.0.0.1", 3306, "root", "");
 kalau db < 0 {
     cetak("gagal login ke MySQL");
 } lain {
     cetak("terhubung ke MySQL");
-    biar hasil: teks = mysqlPerintah(db, "SELECT VERSION()");
-    cetak(potong(hasil, 0, 80));
-    tutup(db);
+
+    biar h: teks = mysql_perintah(db, "SELECT 7, 'halo', 42");
+    cetak("jumlah kolom:");
+    cetak(mysql_jumlah_kolom(h));
+    cetak("jumlah baris:");
+    cetak(mysql_jumlah_baris(h));
+    cetak(mysql_ambil(h, 0, 0));
+    cetak(mysql_ambil(h, 0, 1));
+    cetak(mysql_ambil(h, 0, 2));
+
+    mysql_tutup(db);
 }

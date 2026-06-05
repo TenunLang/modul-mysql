@@ -1,14 +1,16 @@
-// Modul MySQL/MariaDB untuk Tenun — protokol klasik + mysql_native_password.
-// Dibangun di atas builtin inti: sambung/kirim/terima, keByte/bacaInt, sha1Raw/xor, potong.
+// Modul MySQL/MariaDB untuk Tenun.
+// Protokol klasik + mysql_native_password. Dibangun di atas builtin inti:
+// sambung/kirim/terima, keByte/bacaInt, sha1Raw/xor, potong.
+
+// ---- Koneksi & autentikasi ----
 
 // Sambung + autentikasi. Kembalikan handle soket, atau -1 bila gagal.
-fungsi mysqlSambung(inang: teks, port: bulat, pengguna: teks, sandi: teks): bulat {
+fungsi mysql_sambung(inang: teks, port: bulat, pengguna: teks, sandi: teks): bulat {
     biar s: bulat = sambung(inang, port);
 
     biar hs: teks = terima(s, 1024);
 
-    // payload mulai offset 4 (header 3 byte panjang + 1 byte urutan)
-    // [4] = versi protokol, lalu versi server (null-terminated)
+    // payload mulai offset 4; [4] versi protokol, lalu versi server (null-terminated)
     biar i: bulat = 5;
     selama bacaInt(hs, i, 1, salah) != 0 {
         i = i + 1;
@@ -29,7 +31,6 @@ fungsi mysqlSambung(inang: teks, port: bulat, pengguna: teks, sandi: teks): bula
 
     // scramble mysql_native_password:
     // token = SHA1(sandi) XOR SHA1( salt + SHA1(SHA1(sandi)) )
-    // sandi kosong => respons auth kosong (panjang 0)
     biar token: teks = "";
     kalau panjangTeks(sandi) > 0 {
         biar h1: teks = sha1Raw(sandi);
@@ -37,7 +38,7 @@ fungsi mysqlSambung(inang: teks, port: bulat, pengguna: teks, sandi: teks): bula
         token = xor(h1, sha1Raw(salt + h2));
     }
 
-    // kapabilitas: LONG_PASSWORD(1) + PROTOCOL_41(512) + SECURE_CONNECTION(32768) + PLUGIN_AUTH(524288)
+    // kapabilitas: LONG_PASSWORD(1)+PROTOCOL_41(512)+SECURE_CONNECTION(32768)+PLUGIN_AUTH(524288)
     biar payload: teks = keByte(557569, 4, salah);
     payload = payload + keByte(16777216, 4, salah);   // ukuran paket maks
     payload = payload + keByte(33, 1, salah);          // charset utf8
@@ -62,10 +63,118 @@ fungsi mysqlSambung(inang: teks, port: bulat, pengguna: teks, sandi: teks): bula
     kembali s;
 }
 
-// Kirim perintah SQL (COM_QUERY). Kembalikan respons mentah server.
-fungsi mysqlPerintah(s: bulat, sql: teks): teks {
-    biar payload: teks = keByte(3, 1, salah) + sql;            // 0x03 = COM_QUERY
+// Tutup koneksi.
+fungsi mysql_tutup(s: bulat): kosong {
+    tutup(s);
+}
+
+// Pilih basis data aktif (COM_INIT_DB). Kembalikan benar bila sukses.
+fungsi mysql_gunakan(s: bulat, db: teks): bool {
+    biar payload: teks = keByte(2, 1, salah) + db;   // 0x02 = COM_INIT_DB
     biar pkt: teks = keByte(panjangTeks(payload), 3, salah) + keByte(0, 1, salah) + payload;
     kirim(s, pkt);
-    kembali terima(s, 65536);
+    biar resp: teks = terima(s, 512);
+    kembali bacaInt(resp, 4, 1, salah) != 255;
+}
+
+// Jalankan perintah SQL (COM_QUERY). Kembalikan respons mentah server.
+fungsi mysql_perintah(s: bulat, sql: teks): teks {
+    biar payload: teks = keByte(3, 1, salah) + sql;   // 0x03 = COM_QUERY
+    biar pkt: teks = keByte(panjangTeks(payload), 3, salah) + keByte(0, 1, salah) + payload;
+    kirim(s, pkt);
+    kembali terima(s, 1048576);
+}
+
+// Pesan galat dari respons (bila ada). Kosong bila bukan galat.
+fungsi mysql_galat(resp: teks): teks {
+    kalau bacaInt(resp, 4, 1, salah) == 255 {
+        kembali potong(resp, 13, 200);
+    }
+    kembali "";
+}
+
+// ---- Parsing hasil SELECT ----
+// Integer length-encoded: lebar byte + nilainya.
+
+fungsi mysql_le_lebar(d: teks, o: bulat): bulat {
+    biar b: bulat = bacaInt(d, o, 1, salah);
+    kalau b == 251 { kembali 1; }    // NULL
+    kalau b < 251 { kembali 1; }
+    kalau b == 252 { kembali 3; }
+    kalau b == 253 { kembali 4; }
+    kembali 9;
+}
+
+fungsi mysql_le_nilai(d: teks, o: bulat): bulat {
+    biar b: bulat = bacaInt(d, o, 1, salah);
+    kalau b == 251 { kembali 0; }    // NULL
+    kalau b < 251 { kembali b; }
+    kalau b == 252 { kembali bacaInt(d, o + 1, 2, salah); }
+    kalau b == 253 { kembali bacaInt(d, o + 1, 3, salah); }
+    kembali bacaInt(d, o + 1, 8, salah);
+}
+
+// Jumlah kolom pada hasil.
+fungsi mysql_jumlah_kolom(hasil: teks): bulat {
+    kembali mysql_le_nilai(hasil, 4);
+}
+
+// Offset awal baris data (setelah definisi kolom + EOF).
+fungsi mysql_awal_baris(hasil: teks): bulat {
+    biar off: bulat = 0;
+    biar plen: bulat = bacaInt(hasil, off, 3, salah);
+    biar ncol: bulat = mysql_le_nilai(hasil, off + 4);
+    off = off + 4 + plen;
+    biar c: bulat = 0;
+    selama c < ncol {
+        off = off + 4 + bacaInt(hasil, off, 3, salah);
+        c = c + 1;
+    }
+    // paket EOF setelah definisi kolom
+    off = off + 4 + bacaInt(hasil, off, 3, salah);
+    kembali off;
+}
+
+// Jumlah baris pada hasil.
+fungsi mysql_jumlah_baris(hasil: teks): bulat {
+    biar off: bulat = mysql_awal_baris(hasil);
+    biar n: bulat = 0;
+    selama benar {
+        kalau off + 5 > panjangTeks(hasil) {
+            kembali n;
+        }
+        biar rlen: bulat = bacaInt(hasil, off, 3, salah);
+        kalau bacaInt(hasil, off + 4, 1, salah) == 254 {
+            kalau rlen < 9 {
+                kembali n;
+            }
+        }
+        off = off + 4 + rlen;
+        n = n + 1;
+    }
+    kembali n;
+}
+
+// Ambil nilai sel (baris, kolom) sebagai teks. NULL -> "".
+fungsi mysql_ambil(hasil: teks, baris: bulat, kolom: bulat): teks {
+    biar off: bulat = mysql_awal_baris(hasil);
+    biar r: bulat = 0;
+    selama r < baris {
+        off = off + 4 + bacaInt(hasil, off, 3, salah);
+        r = r + 1;
+    }
+    biar p: bulat = off + 4;     // awal payload baris
+    biar k: bulat = 0;
+    selama k < kolom {
+        p = p + mysql_le_lebar(hasil, p) + mysql_le_nilai(hasil, p);
+        k = k + 1;
+    }
+    biar fw: bulat = mysql_le_lebar(hasil, p);
+    biar flen: bulat = mysql_le_nilai(hasil, p);
+    kembali potong(hasil, p + fw, flen);
+}
+
+// Nilai sel pertama (baris 0, kolom 0) — pintasan untuk query skalar.
+fungsi mysql_nilai(hasil: teks): teks {
+    kembali mysql_ambil(hasil, 0, 0);
 }

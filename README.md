@@ -15,24 +15,42 @@ tenun add mysql
 ```tenun
 impor "mysql";
 
-biar db: bulat = mysqlSambung("127.0.0.1", 3306, "root", "");
+biar db: bulat = mysql_sambung("127.0.0.1", 3306, "root", "");
 kalau db < 0 {
     cetak("gagal login");
 } lain {
-    biar hasil: teks = mysqlPerintah(db, "SELECT VERSION()");
-    cetak(hasil);
-    tutup(db);
+    biar h: teks = mysql_perintah(db, "SELECT id, nama FROM pengguna");
+    biar baris: bulat = 0;
+    selama baris < mysql_jumlah_baris(h) {
+        cetak(mysql_ambil(h, baris, 0) + " - " + mysql_ambil(h, baris, 1));
+        baris = baris + 1;
+    }
+    mysql_tutup(db);
 }
 ```
 
 ## Fungsi
 
-- `mysqlSambung(inang: teks, port: bulat, pengguna: teks, sandi: teks): bulat`
-  Menyambung + autentikasi. Mengembalikan handle soket, atau `-1` bila gagal.
-- `mysqlPerintah(soket: bulat, sql: teks): teks`
-  Menjalankan perintah SQL (COM_QUERY). Mengembalikan respons mentah server.
+Koneksi:
 
-Tutup koneksi dengan builtin inti `tutup(soket)`.
+- `mysql_sambung(inang: teks, port: bulat, pengguna: teks, sandi: teks): bulat`
+  Menyambung + autentikasi (`mysql_native_password`). Mengembalikan handle soket, atau `-1` bila gagal.
+- `mysql_gunakan(soket: bulat, db: teks): bool` — pilih basis data aktif.
+- `mysql_tutup(soket: bulat): kosong` — tutup koneksi.
+
+Eksekusi:
+
+- `mysql_perintah(soket: bulat, sql: teks): teks` — jalankan SQL, kembalikan respons mentah (untuk SELECT, ini "hasil" yang dibaca fungsi di bawah).
+- `mysql_galat(resp: teks): teks` — pesan galat dari respons (kosong bila bukan galat).
+
+Membaca hasil SELECT:
+
+- `mysql_jumlah_kolom(hasil: teks): bulat`
+- `mysql_jumlah_baris(hasil: teks): bulat`
+- `mysql_ambil(hasil: teks, baris: bulat, kolom: bulat): teks` — nilai sel (0-indeks); `NULL` menjadi `""`.
+- `mysql_nilai(hasil: teks): teks` — pintasan untuk sel pertama (query skalar).
+
+Nama fungsi memakai gaya `snake_case` dengan awalan `mysql_`.
 
 ## Struktur
 
