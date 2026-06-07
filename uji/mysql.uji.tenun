@@ -1,0 +1,4 @@
+impor "../src/mysql.tenun";
+biar satu: teks = keByte(200, 1, salah);
+tegasSamaBulat(mysql_le_lebar(satu, 0), 1, "lenenc 1 byte lebar");
+tegasSamaBulat(mysql_le_nilai(satu, 0), 200, "lenenc 1 byte nilai");
